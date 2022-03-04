@@ -1,0 +1,51 @@
+item_num,item_name,item_description
+1,Airplane,"Airplane
+"
+2,Ambulance,"Ambulance
+"
+3,Automobile,"Automobile
+"
+4,Baby Shoulder-Carrier,"Baby shoulder-carrier
+"
+5,Baby Stroller,"Baby stroller
+"
+6,Bicycle,"Bicycle
+"
+7,Bus,"Bus
+"
+8,Canoe,"Wooden canoe
+"
+9,Car,"Car
+"
+10,Carriage,"Horse-drawn carriage
+"
+11,Crutches,"Pair of crutches
+"
+12,Drone,"Drone
+"
+13,Golf Cart,"Golf cart
+"
+14,Helicopter,"Helicopter
+"
+15,Vehicle,"Vehicle
+"
+16,Liferaft,"Life raft
+"
+17,Moped,"Moped
+"
+18,Pogo Stick,"Pogo stick
+"
+19,Rollerskate,"Pair of roller skates
+"
+20,Skateboard,"Skateboard
+"
+21,Toy Car,"Toy Car
+"
+22,Truck,"Truck
+"
+23,Wheelchair,"Electric wheelchair
+"
+24,WWII Truck,"A nonfunctioning commemorative truck (e.g. a World War II Truck that has been decorated as a World War II monument)
+"
+25,Zip-line,Zip line
+0,attention_check,"This is an attention check, please pick this item"

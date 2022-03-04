@@ -1,0 +1,300 @@
+---
+title: "Vehicles in the park"
+output: 
+  html_document: 
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(tidyverse) # for data manipulation
+library(sirt) # used to fit the Bradley-Terry model
+library(cocor) # used to compute correlation coefficients
+
+source("sirt_functions.R")
+source("cj_functions.R")
+
+# Set preferred styling
+theme_set(theme_minimal())
+```
+
+# Items being judged
+
+The judgement data uses ID numbers for the various items being judged. This table shows how these IDs correspond to the actual items:
+
+```{r message=FALSE, warning=FALSE}
+items <- read_csv(here::here("data-raw/item_details.csv")) %>% mutate(item_description = str_trim(item_description))
+
+items
+```
+# Judgement data
+
+```{r message=FALSE}
+judgement_data <- read_csv(here::here("data-raw", "judgements_all.csv"))
+
+# restrict to the binary judgement data
+# (some of the judges used a slider to provide a score rather than a binary choice)
+judgement_data <- judgement_data %>% 
+  filter(!is.na(won)) %>% 
+  select(-any_of("score"))
+```
+
+Data summary:
+
+```{r}
+judgement_data %>% 
+  group_by(study) %>% 
+  summarise(
+    n_judges = n_distinct(judge_id),
+    n_judgements = n_distinct(judgement_id)
+  )
+```
+
+Judges had to complete attention checks - when item 0 appeared, they were instructed to select that as the winner.
+
+Here we identify those judges who failed any of the attention checks:
+
+```{r}
+judgement_data %>% 
+  mutate(attention_check = case_when(
+    (left == 0 | right == 0) & won == 0 ~ "pass",
+    (left == 0 | right == 0) & won != 0 ~ "fail",
+    TRUE ~ NA_character_
+  )) %>% 
+  group_by(judge_id) %>% 
+  summarise(
+    failed_attention_checks = sum(attention_check == "fail", na.rm = TRUE)
+  ) %>% 
+  filter(failed_attention_checks > 0)
+```
+
+For the analysis, we remove all the attention checks, and also all data from those judges who failed 2 or more of the attention checks.
+
+```{r}
+decisions <- judgement_data %>% 
+  filter(left != 0, right != 0) %>% 
+  filter(!judge_id %in% c(59, 110))
+```
+
+This leaves the following set of judgements:
+
+```{r}
+decisions %>% 
+  group_by(study) %>% 
+  summarise(
+    n_judges = n_distinct(judge_id),
+    n_judgements = n_distinct(judgement_id)
+  )
+```
+
+# Fit the Bradley-Terry model
+
+We fit the Bradley-Terry model separately for each study.
+
+```{r include=FALSE}
+btm_results <- decisions %>% 
+  # group the judgements by study and fit the BT model
+  nest(csv_content = !c(study)) %>% 
+  mutate(
+    btm_stuff = map(csv_content, btm_for_cj, chosen_col = "won", notchosen_col = "lost", judge_col = "judge_id")
+  ) %>% 
+  unnest(cols = c(btm_stuff))
+```
+
+```{r}
+btm_results %>% 
+  select(-csv_content, -btm_estimates, -judge_fits) %>% 
+  mutate(ssr = as.numeric(ssr)) %>% 
+  arrange(study)
+
+btm_estimates <- btm_results %>% 
+  select(study, btm_estimates) %>% 
+  unnest(cols = c(btm_estimates)) %>% 
+  select(-id) %>%
+  # For clarity, include the item names corresponding to the ID numbers
+  left_join(items %>% select(individual = item_num, item_name), by = "individual") %>% 
+  relocate(item_name, .after = individual)
+```
+
+The estimated scores for each item are written to `data-processed/btm_estimates.csv`.
+
+```{r}
+btm_estimates %>% 
+  write_csv(here::here("data-processed/btm_estimates.csv"))
+```
+
+We also produce a simplified version that just includes the theta (_est) and se.theta (_se) for each of the scales, saved in `data-processed/scores.csv`.
+
+```{r}
+scores <- btm_estimates %>% 
+  # remove redundant text from the study names
+  mutate(study = str_remove(study, "_pairs")) %>% 
+  # focus only on the relevant columns
+  select(study, individual, item_name, est = theta, se = se.theta) %>% 
+  # bring both the est and se into a single column
+  pivot_longer(cols = c("est", "se"), names_to = "param", values_to = "value") %>% 
+  # consolidate the study names and parameter names
+  mutate(param = paste0(study, "_", param)) %>% 
+  select(-study) %>% 
+  # pivot wider to get each parameter in its own column
+  pivot_wider(names_from = param, values_from = value)
+
+scores
+
+scores %>% 
+  write_csv(here::here("data-processed/scores.csv"))
+```
+
+
+### Interlude: Judge fits
+
+The model gives an infit figure for each judge. This code identifies judges who are more than 2 SDs above the mean.
+
+```{r}
+judge_fits <- btm_results %>% 
+  select(study, judge_fits) %>% 
+  unnest(cols = c(judge_fits))
+
+judge_fits %>% 
+  group_by(study) %>% 
+  count(discard)
+
+judge_fits %>% 
+  filter(discard == TRUE)
+```
+
+This plot shows the infit score for each judge:
+
+```{r}
+judge_fits %>% 
+  ggplot(aes(y = infit, x = judgeName)) +
+  geom_point(alpha = 0.1) +
+  geom_text(aes(label = judgeName)) +
+  facet_grid(cols = vars(study))
+
+```
+
+Since very few judges are misfitting, we have decided not to remove their data.
+
+
+# Scale plots
+
+Before plotting the scales, we make some small tweaks to the `scores` dataset:
+1. to change the text for each item to be the full description shown to participants,
+2. to add a column with data from Tobia's study.
+
+```{r message=FALSE, warning=FALSE}
+judging_prompts <- c("vehicle" = "Which is the better\nexample of a vehicle?",
+              "violation" = "A sign says\n\"No Vehicles in the Park\".\nWhich example would be\nthe worst violation?",
+              "nuisance" = "Which example would\nbe the bigger\nnuisance in a park?")
+
+# fix the names of the items - instead of the shorthand names, use the full item_description as shown to participants
+scores <- scores %>% 
+  select(-item_name) %>% 
+  left_join(items %>% select(individual = item_num, item_name = item_description), by = "individual") %>% 
+  relocate(item_name, .after = individual) %>% 
+  # deal with one extra-long item by manually setting its text (including an asterisk so this can be explained in the figure caption)
+  mutate(item_name = if_else(individual == 24, "WWII truck*", item_name))
+
+# add the Tobia percentages for comparison
+tobia_percentages <- read_csv(here::here("data-raw/tobia-percentages.csv"))
+
+scores <- scores %>% 
+  left_join(tobia_percentages %>% select(individual = item_num, tobia_percentage))
+
+scores
+```
+
+We also produce a "long" version of the scores, with separate rows for each study, as this is needed for plotting.
+
+```{r}
+scores_long <- scores %>% 
+  # keep the vehicle score for later
+  mutate(vehicleness = vehicle_est) %>% 
+  # put all three scales (nuisance, vehicle, violation) into long format
+  pivot_longer(
+    cols = c(ends_with("_est"), ends_with("_se")),
+    names_sep = "_",
+    names_to = c("scale", "param")
+  ) %>% 
+  pivot_wider(
+    names_from = "param",
+    values_from = "value"
+  )
+```
+
+
+This shows the scores for each item on each scale, ordered by the scores for `vehicle`:
+
+```{r fig.height=5, fig.width=8, warning=FALSE}
+theme_set(theme_minimal())
+
+scores_long %>% 
+  # order items by the vehicleness score
+  mutate(item_name = fct_reorder(item_name, vehicleness)) %>%
+  # fix the order of the panels
+  mutate(scale = fct_relevel(scale, "vehicle", "violation", "nuisance")) %>% 
+  ggplot(aes(x = est, y = item_name)) +
+  geom_pointrange(aes(xmin = est - se, xmax = est + se), size = 0.1) +
+  facet_grid(cols = vars(scale), scales = "free", labeller = labeller(
+    scale = judging_prompts
+  )) +
+  theme_minimal() +
+  labs(x = "Score", y = "")
+  #labs(caption = "* shown to participants as: A nonfunctioning commemorative truck (e.g. a World War II Truck that has been decorated as a World War II monument)")
+
+ggsave(here::here("figs/scale-plot.pdf"), units = "cm", width = 18, height = 14)
+```
+This shows:
+
+1. the `violation` and `nusiance` scales have a different pattern from `vehicle`, and 
+2. while different from `vehicle`, the `violation` and `nusiance` scales look quite similar to each other.
+3. Some of the items have noticeably different scores between the scales, e.g. ambulance near the top.
+
+```{r}
+scores_long %>% 
+  filter(item_name == "Ambulance") %>% 
+  select(item_name, scale, est, se)
+```
+
+```{r}
+scores_long %>% 
+  filter(item_name == "Zip line") %>% 
+  select(item_name, scale, est, se)
+```
+
+## Comparison with Tobia
+
+Alternatively, this can be done ordering the words by the percentage from Tobia, to highlight differences in our `vehicle` scale:
+
+```{r fig.height=5, fig.width=8, warning=FALSE}
+scores_long %>% 
+  mutate(item_name = fct_reorder(item_name, tobia_percentage)) %>%
+  mutate(scale = fct_relevel(scale, "vehicle", "violation", "nuisance")) %>% 
+  ggplot(aes(x = est, y = item_name)) +
+  geom_pointrange(aes(xmin = est - se, xmax = est + se), size = 0.1) +
+  facet_grid(cols = vars(scale), scales = "free") +
+  theme_minimal() +
+  labs(x = "Score", y = "")
+
+ggsave(here::here("figs/scale-plot-tobia-order.pdf"), units = "cm", width = 20, height = 12)
+```
+
+Why is "vehicle" so low on our `vehicle` scale? Why is "crutches" so high?
+
+
+# Correlation plot
+
+Plotting scores for `vehicle` against `violation` shows they are well-correlated, and shows some outliers:
+
+* Ambulance is high on the `vehicle` scale but lower on the `violation` scale than would be predicted by the correlation (i.e. although it is regarded as a vehicle, it would not be felt as a violation of the rule)
+
+* Zip-line is low on the `vehicle` scale, but higher on the `violation` scale than would be predicted by the correlation (i.e. while it is not regarded as a vehicle, it would be felt as a violation)
+
+```{r}
+scores %>% 
+  ggplot(aes(x = vehicle_est, y = violation_est, label = item_name)) +
+  geom_point() +
+  ggrepel::geom_text_repel( box.padding = 0.1, min.segment.length = 0.2, colour = "#777777")
+```
+
