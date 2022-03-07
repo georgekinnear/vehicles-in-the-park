@@ -131,13 +131,12 @@ scores <- btm_estimates %>%
   mutate(study = str_remove(study, "_pairs")) %>% 
   # focus only on the relevant columns
   select(study, individual, item_name, est = theta, se = se.theta) %>% 
-  # bring both the est and se into a single column
-  pivot_longer(cols = c("est", "se"), names_to = "param", values_to = "value") %>% 
-  # consolidate the study names and parameter names
-  mutate(param = paste0(study, "_", param)) %>% 
-  select(-study) %>% 
-  # pivot wider to get each parameter in its own column
-  pivot_wider(names_from = param, values_from = value)
+  # create separate _est and _se columns for each study
+  pivot_wider(
+    names_from = study,
+    names_glue = "{study}_{.value}",
+    values_from = c(est, se)
+  )
 
 scores
 

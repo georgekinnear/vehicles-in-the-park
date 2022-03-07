@@ -1,0 +1,79 @@
+---
+title: "Vehicles in the park: analysis of comments"
+output: 
+  html_document: 
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+
+judgements <- read_csv("judgements_all.csv")
+```
+
+# Items
+
+```{r}
+items <- read_csv("scripts.csv") %>% mutate(item_description = str_trim(item_description))
+
+items %>% knitr::kable()
+```
+These items are abbreviated in the figure:
+
+```{r}
+items %>% 
+  filter(str_to_lower(item_name) != str_to_lower(item_description)) %>% 
+  knitr::kable()
+```
+
+```{r}
+item_key <- items %>% select(item_num, item_name) %>% deframe()
+```
+
+
+# Comments
+
+```{r}
+all_relevant_judgements <- judgements %>% 
+  # restrict to the binary choices
+  filter(str_detect(study, "pairs")) %>% 
+  # replace item numbers with names
+  mutate(across(c(left, right, won, lost), ~ recode(., !!!item_key))) %>% 
+  select(-left, -right, -score, -time_taken) %>% 
+  arrange(study, judge_id)
+
+judgements_with_comments <- all_relevant_judgements %>% 
+  filter(str_length(comment) > 0)
+```
+
+Out of `r nrow(all_relevant_judgements)` these are the `r nrow(judgements_with_comments)` with comments:
+
+```{r}
+judgements_with_comments %>% 
+  knitr::kable()
+```
+
+## Slider conditions
+
+Interestingly comments seemed to be more common in the slider condition.
+
+```{r}
+all_relevant_judgements <- judgements %>% 
+  # restrict to the slider conditions
+  filter(str_detect(study, "slider")) %>% 
+  # replace item numbers with names
+  mutate(across(c(left, right), ~ recode(., !!!item_key))) %>% 
+  select(-won, -lost, -time_taken) %>% 
+  arrange(study, judge_id)
+
+judgements_with_comments <- all_relevant_judgements %>% 
+  filter(str_length(comment) > 0)
+```
+
+Out of `r nrow(all_relevant_judgements)` these are the `r nrow(judgements_with_comments)` with comments:
+
+```{r}
+judgements_with_comments %>% 
+  knitr::kable()
+```
