@@ -1,0 +1,186 @@
+---
+title: "Vehicles in the park"
+output: 
+  html_document: 
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+
+scores <- read_csv(here::here("data-processed/scores.csv"))
+items <- read_csv(here::here("data-raw/item_details.csv")) %>% mutate(item_description = str_trim(item_description))
+
+judging_prompts <- c("vehicle" = "Which is the better\nexample of a vehicle?",
+              "violation" = "A sign says\n\"No Vehicles in the Park\".\nWhich example would be\nthe worst violation?",
+              "nuisance" = "Which example would\nbe the bigger nuisance\nin a park?")
+```
+
+# Scores
+Before plotting the scales, we make some small tweaks to the `scores` dataset:
+1. to change the text for each item to be the full description shown to participants,
+2. to add a column with data from Tobia's study.
+
+```{r message=FALSE, warning=FALSE}
+scores_raw <- scores
+
+# fix the names of the items - instead of the shorthand names, use the full item_description as shown to participants
+scores <- scores_raw %>% 
+  mutate(item_name_old = item_name) %>% 
+  select(-item_name) %>% 
+  left_join(items %>% select(individual = item_num, item_name = item_description), by = "individual") %>% 
+  relocate(item_name, .after = individual) %>% 
+  # deal with one extra-long item by manually setting its text (including an asterisk so this can be explained in the figure caption)
+  mutate(item_name = if_else(individual == 24, "WWII truck*", item_name))
+
+# add the Tobia percentages for comparison
+tobia_percentages <- read_csv(here::here("data-raw/tobia-percentages.csv")) %>% 
+  # adjust item names to match
+  select(item_num, tobia_percentage) %>% 
+  left_join(scores %>% select(item_num = individual, item_name), by = "item_num")
+
+scores <- scores %>% 
+  left_join(tobia_percentages %>% select(individual = item_num, tobia_percentage), by = "individual")
+
+scores
+```
+
+We also produce a "long" version of the scores, with separate rows for each study, as this is needed for plotting.
+
+```{r}
+scores_long <- scores %>% 
+  # keep the vehicle score for later
+  mutate(vehicleness = vehicle_est) %>% 
+  # put all three scales (nuisance, vehicle, violation) into long format
+  pivot_longer(
+    cols = c(ends_with("_est"), ends_with("_se")),
+    names_sep = "_",
+    names_to = c("scale", "param")
+  ) %>% 
+  pivot_wider(
+    names_from = "param",
+    values_from = "value"
+  )
+```
+
+
+This shows the scores for each item on each scale, ordered by the scores for `vehicle`:
+
+```{r fig.height=5, fig.width=8, warning=FALSE}
+theme_set(theme_minimal())
+
+scale_plot <- scores_long %>% 
+  # order items by the vehicleness score
+  mutate(item_name = fct_reorder(item_name, vehicleness)) %>%
+  # fix the order of the panels
+  mutate(scale = fct_relevel(scale, "vehicle", "violation", "nuisance")) %>% 
+  ggplot(aes(x = est, y = item_name)) +
+  geom_pointrange(aes(xmin = est - se, xmax = est + se), size = 0.1) +
+  facet_grid(cols = vars(scale), scales = "free", labeller = labeller(
+    scale = judging_prompts
+  )) +
+  theme_minimal() +
+  labs(x = "Score from comparative judgement", y = "")
+  #labs(caption = "* shown to participants as: A nonfunctioning commemorative truck (e.g. a World War II Truck that has been decorated as a World War II monument)")
+
+scale_plot
+
+ggsave(here::here("figs/scale-plot.pdf"), units = "cm", width = 18, height = 14)
+```
+* shown to participants as: A nonfunctioning commemorative truck (e.g. a World War II Truck that has been decorated as a World War II monument)
+
+This shows:
+
+1. the `violation` and `nusiance` scales have a different pattern from `vehicle`, and 
+2. while different from `vehicle`, the `violation` and `nusiance` scales look quite similar to each other.
+3. Some of the items have noticeably different scores between the scales, e.g. ambulance near the top.
+
+```{r}
+scores_long %>% 
+  filter(item_name == "Ambulance") %>% 
+  select(item_name, scale, est, se)
+```
+
+```{r}
+scores_long %>% 
+  filter(item_name == "Zip line") %>% 
+  select(item_name, scale, est, se)
+```
+
+## Comparison with Tobia
+
+Alternatively, this can be done ordering the words by the percentage from Tobia, to highlight differences in our `vehicle` scale:
+
+```{r fig.height=5, fig.width=8, warning=FALSE}
+library(patchwork)
+
+# Assemble the left-hand panel, showing percentages from Tobia
+plt_tobia <- tobia_percentages %>% 
+  mutate(item_name = fct_reorder(item_name, tobia_percentage),
+         title = "Tobia (2020)") %>% 
+  ggplot(aes(x = 0.1, y = item_name, label = paste0(round(tobia_percentage, 0), "%"))) +
+  geom_bar(aes(x = tobia_percentage/100), stat = "identity", fill = "#dddddd") +
+  geom_text(hjust = 0, size = 2.5) +
+  facet_grid(cols = vars(title)) +
+  theme_minimal() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) +
+  labs(y = "")
+
+# Redo the scale plot, with the ordering based on Tobia's scores now
+scale_plot_by_tobia <- scores_long %>% 
+  # order items by Tobia percentage
+  mutate(item_name = fct_reorder(item_name, tobia_percentage)) %>%
+  # fix the order of the panels
+  mutate(scale = fct_relevel(scale, "vehicle", "violation", "nuisance")) %>% 
+  ggplot(aes(x = est, y = item_name)) +
+  geom_pointrange(aes(xmin = est - se, xmax = est + se), size = 0.4, fatten = 0.7) +
+  facet_grid(cols = vars(scale), scales = "free", labeller = labeller(
+    scale = judging_prompts
+  )) +
+  theme_minimal() +
+  labs(x = "Score from comparative judgement", y = "")
+
+# Combine the two plots together
+patchwork::wrap_plots(
+  plt_tobia,
+  plot_spacer(), # given width = -0.4 below to reduce space between the two panels
+  scale_plot_by_tobia +
+    theme(
+      axis.title.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank()
+    )
+) +
+  plot_layout(widths = c(1, -0.4, 8))
+
+ggsave(here::here("figs/scale-plot-tobia-order.pdf"), units = "cm", width = 20, height = 12)
+```
+
+
+
+# Correlations
+
+## Plotting an example
+
+Plotting scores for `vehicle` against `violation` shows they are well-correlated, and shows some outliers:
+
+* Ambulance is high on the `vehicle` scale but lower on the `violation` scale than would be predicted by the correlation (i.e. although it is regarded as a vehicle, it would not be felt as a violation of the rule)
+
+* Zip-line is low on the `vehicle` scale, but higher on the `violation` scale than would be predicted by the correlation (i.e. while it is not regarded as a vehicle, it would be felt as a violation)
+
+```{r}
+scores %>% 
+  ggplot(aes(x = vehicle_est, y = violation_est, label = item_name)) +
+  geom_point() +
+  ggrepel::geom_text_repel( box.padding = 0.1, min.segment.length = 0.2, colour = "#777777") +
+  labs(x = "Vehicle score", y = "Violation score")
+```
+
+## Correlation coefficients
+
+> **TODO** - include the stats reported in the paper

@@ -7,24 +7,18 @@ output:
 ---
 
 ```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 library(tidyverse)
 
-judgements <- read_csv("judgements_all.csv")
+judgements <- read_csv(here::here("data-raw/judgements_all.csv"))
 ```
 
 # Items
 
 ```{r}
-items <- read_csv("scripts.csv") %>% mutate(item_description = str_trim(item_description))
+items <- read_csv(here::here("data-raw/item_details.csv")) %>% mutate(item_description = str_trim(item_description))
 
-items %>% knitr::kable()
-```
-These items are abbreviated in the figure:
-
-```{r}
-items %>% 
-  filter(str_to_lower(item_name) != str_to_lower(item_description)) %>% 
-  knitr::kable()
+items
 ```
 
 ```{r}
@@ -47,11 +41,14 @@ judgements_with_comments <- all_relevant_judgements %>%
   filter(str_length(comment) > 0)
 ```
 
-Out of `r nrow(all_relevant_judgements)` these are the `r nrow(judgements_with_comments)` with comments:
+Out of `r nrow(all_relevant_judgements)` judgements, these are the `r nrow(judgements_with_comments)` with comments:
 
 ```{r}
 judgements_with_comments %>% 
-  knitr::kable()
+  relocate(judgement_id, .after = "judge_id") %>% 
+  knitr::kable() %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  kableExtra::collapse_rows(columns = 1:2, valign = "top")
 ```
 
 ## Slider conditions
@@ -75,5 +72,8 @@ Out of `r nrow(all_relevant_judgements)` these are the `r nrow(judgements_with_c
 
 ```{r}
 judgements_with_comments %>% 
-  knitr::kable()
+  relocate(judgement_id, .after = "judge_id") %>% 
+  knitr::kable()  %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  kableExtra::collapse_rows(columns = 1:2, valign = "top")
 ```
