@@ -115,6 +115,8 @@ btm_estimates <- btm_results %>%
   relocate(item_name, .after = individual)
 ```
 
+> **TODO** Split-halves reliability
+
 The estimated scores for each item are written to `data-processed/btm_estimates.csv`.
 
 ```{r}
@@ -173,6 +175,26 @@ judge_fits %>%
 ```
 
 Since very few judges are misfitting, we have decided not to remove their data.
+
+### Interlude 2: "Every judge saw every item multiple times"
+
+Here we check how many times each judge saw each item, and focus attention on the judge/item pairings that occurred the least:
+
+```{r}
+decisions %>% 
+  select(judge_id, left, right) %>% 
+  pivot_longer(c(left, right), values_to = "item") %>% 
+  select(judge_id, item) %>% 
+  group_by(judge_id, item) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(judge_id, item) %>% 
+  arrange(n) %>% 
+  head(n = 20)
+```
+
+This shows that almost all judges saw every item at least twice. However it looks like judge 168 only saw some items once.
+
 
 # Next: analysis
 
