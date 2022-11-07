@@ -8,6 +8,7 @@ output:
 
 ```{r setup, include=FALSE}
 library(tidyverse)
+require(cocor) # used for correlation tests later on
 
 scores <- read_csv(here::here("data-processed/scores.csv"))
 items <- read_csv(here::here("data-raw/item_details.csv")) %>% mutate(item_description = str_trim(item_description))
@@ -181,6 +182,62 @@ scores %>%
   labs(x = "Vehicle score", y = "Violation score")
 ```
 
-## Correlation coefficients
+## H2: The scores are consistent with those reported by Tobia (2020)
 
-> **TODO** - include the stats reported in the paper
+```{r}
+h2 <- scores %>% 
+  select(individual, ends_with("est")) %>% 
+  rename_with(~ str_remove(., "_est")) %>% 
+  left_join(tobia_percentages %>% select(individual = item_num, tobia = tobia_percentage), by = "individual") %>% 
+  select(-individual) %>% 
+  as.matrix()
+
+round(cor(h2, method = "spearman"),3)
+```
+
+Test the difference between correlations
+
+```{r}
+cocor(~tobia + vehicle | tobia + violation, data = h2, test = "hittner2003")
+#sig different p-value = 0.0389
+```
+
+```{r}
+cocor(~tobia + nuisance | tobia + violation, data = h2, test = "hittner2003")
+#no sig different p-value = 0.3206
+```
+
+```{r}
+cocor(~tobia + vehicle | tobia + nuisance, data = h2, test = "hittner2003")
+#no sig difference p-value = 0.0369
+```
+
+
+
+## H3: The scores are consistent across the Vehicle, Violation and Nuisance conditions
+
+```{r}
+h3 <- cbind(nuisance = scores$nuisance_est, vehicle  = scores$vehicle_est, violation = scores$violation_est)
+  
+round(cor(h3),3)
+```
+
+Test the difference between correlations
+
+```{r}
+cocor(~nuisance + vehicle | nuisance + violation, data = h3, test = "hittner2003")
+#sig different p-value = 0.0010
+```
+
+```{r}
+cocor(~vehicle + nuisance | vehicle + violation, data = h2, test = "hittner2003")
+#sig different p-value = 0.0046
+```
+
+```{r}
+cocor(~violation + vehicle | violation + nuisance, data = h2, test = "hittner2003")
+#no sig difference p-value = 0.4334
+```
+
+
+
