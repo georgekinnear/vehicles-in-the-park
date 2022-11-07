@@ -143,7 +143,7 @@ btm_for_cj <- function(decisions_data, chosen_col = "Won", notchosen_col = "Lost
     N_R = nrow(mdl[["effects"]]),
     N_A = nrow(judge_fits),
     N_C = nrow(decisions_for_sirt),
-    ssr = list(mdl$mle.rel),
+    ssr = list( (mdl$sepG)^2 / (1+(mdl$sepG)^2) ),
     btm_estimates = list(as_tibble(mdl[["effects"]])),
     judge_fits = list(as_tibble(judge_fits)),
   ))
